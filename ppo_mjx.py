@@ -135,11 +135,16 @@ def make_loss_fns(actor: Actor, critic: Critic, epsilon: float, entropy_coeff: f
     def loss_fn_critic(params_critic, batch_states, batch_returns):
         values = critic.apply(params_critic, batch_states).squeeze(-1)
         return 0.5 * jnp.mean((batch_returns - values) ** 2)
+    
+    def loss_fn_entropy(params_actor, batch_states):
+        entropy = actor.get_entropy(params_actor, batch_states)
+        return entropy
 
     def loss_fn(params_actor, params_critic, batch_states, batch_actions, batch_advantages, batch_old_log_probs, batch_returns):
         actor_loss, approx_kl = loss_fn_actor(params_actor, batch_states, batch_actions, batch_advantages, batch_old_log_probs)
         critic_loss = loss_fn_critic(params_critic, batch_states, batch_returns)
-        total = actor_loss + value_coef * critic_loss
+        entropy_loss = loss_fn_entropy(params_actor, batch_states)
+        total = actor_loss + value_coef * critic_loss + entropy_coeff * entropy_loss
         return total, (actor_loss, critic_loss, approx_kl)
 
     return loss_fn, loss_fn_actor, loss_fn_critic

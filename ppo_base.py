@@ -7,6 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import mujoco
 from mujoco import mjx
+import distrax
 
 class Critic(nn.Module):
     state_dim: int
@@ -46,6 +47,11 @@ class Actor(nn.Module):
         noise = jax.random.normal(key, mu.shape)
         action = mu + std * noise
         return action
+
+    def get_entropy(self, params, state):
+        mu, std = self.apply(params, state)
+        pi = distrax.MultivariateNormalDiag(mu, std)
+        return pi.entropy().mean()
     
 
 
