@@ -127,8 +127,7 @@ def make_loss_fns(actor: Actor, critic: Critic, epsilon: float, entropy_coeff: f
         pg_loss1 = -batch_advantages * ratio
         pg_loss2 = -batch_advantages * jnp.clip(ratio, 1.0 - epsilon, 1.0 + epsilon)
         pg_loss = jnp.maximum(pg_loss1, pg_loss2)
-        entropy = (0.5 + 0.5 * jnp.log(2 * jnp.pi) + jnp.log(std)).sum(axis=-1).mean()
-        actor_loss = pg_loss.mean() - entropy_coeff * entropy
+        actor_loss = pg_loss.mean()
         approx_kl = -jnp.mean(log_ratio)
         return actor_loss, approx_kl
 
@@ -144,8 +143,12 @@ def make_loss_fns(actor: Actor, critic: Critic, epsilon: float, entropy_coeff: f
         actor_loss, approx_kl = loss_fn_actor(params_actor, batch_states, batch_actions, batch_advantages, batch_old_log_probs)
         critic_loss = loss_fn_critic(params_critic, batch_states, batch_returns)
         entropy_loss = loss_fn_entropy(params_actor, batch_states)
-        total = actor_loss + value_coef * critic_loss + entropy_coeff * entropy_loss
+        total = actor_loss + value_coef * critic_loss - entropy_coeff * entropy_loss
         return total, (actor_loss, critic_loss, approx_kl)
+    
+    def loss_fn_distributional_critic(params_critic, batch_states):
+        values = critic.apply(params_critic, batch_states).squeeze(-1)
+        return 0.5 * jnp.mean((batch_returns - values) ** 2)
 
     return loss_fn, loss_fn_actor, loss_fn_critic
 
@@ -185,14 +188,18 @@ if __name__ == "__main__":
     num_iterations = 200
     num_steps_per_environment = 1024
     n_envs = 16
-    num_epochs = 10
+    num_epochs = 8
     discount = 0.99
     gae_lambda = 0.95
     batch_size = 64
-    epsilon = 0.2
-    entropy_coeff = 0.01
+    epsilon = 0.1
+    entropy_coeff = 0.1
     value_coef = 0.5
     learning_rate = 1e-4
+    target_kl = 0.05
+
+    # Potentiall improvements:
+    # - add value clipping
 
     # Setup logging
     results_dir = os.path.join(os.path.dirname(__file__), 'results')
@@ -257,9 +264,9 @@ if __name__ == "__main__":
         # Compute targets
         buffer.compute_advantages(params_critic, critic)
         buffer.compute_returns()
+        buffer.normalize_advantages()
         buffer.compute_log_probs(params_actor, actor, key)
         buffer.flatten()
-        buffer.normalize_advantages()
         buffer.save_old_flat_log_probs()
         num_samples = buffer.flat_states.shape[0]
 
@@ -311,4 +318,10 @@ if __name__ == "__main__":
                 f.write(f"{iteration},{epoch},{global_step},{loss_avg},{actor_loss_avg},{critic_loss_avg},{kl_avg},{avg_return}\n")
 
             print(f"Epoch {epoch}: loss={loss_avg:.3f} actor={actor_loss_avg:.3f} critic={critic_loss_avg:.3f} kl={kl_avg:.6f}")
+
+            # # ✓ Early stop if KL divergence too high
+            # kl_avg = kl_sum / max(1, batches)
+            # if abs(kl_avg) > target_kl:
+            #     print(f"Early stopping at epoch {epoch}, KL={kl_avg:.6f} > {target_kl}")
+            #     break
 

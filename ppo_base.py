@@ -26,7 +26,6 @@ class Critic(nn.Module):
         return value
     
 
-
 class Actor(nn.Module):
     state_dim: int
     action_dim: int
@@ -96,7 +95,7 @@ class ReplayBuffer():
         self.dones[idx] = np.asarray(done, dtype=np.float32)
         self.ptr += 1
 
-    def compute_advantages(self, params_critic, critic):
+    def compute_advantages(self, params_critic, critic, normalize=False):
         # Convert to JAX once
         states = jnp.asarray(self.states)
         rewards = jnp.asarray(self.rewards)
@@ -133,6 +132,10 @@ class ReplayBuffer():
         self.log_probs = log_probs.sum(axis=-1)[:-1]
         self.flat_log_probs = self.log_probs.reshape(-1)
 
+    def normalize_advantages(self):
+        self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
+
+
 
     def flatten(self):
         # Create JAX arrays for training
@@ -141,11 +144,6 @@ class ReplayBuffer():
         self.flat_rewards = jnp.asarray(self.rewards[:-1]).reshape(-1)
         self.flat_dones = jnp.asarray(self.dones[:-1]).reshape(-1)
         self.flat_advantages = self.advantages.reshape(-1)
-
-    def normalize_advantages(self):
-        mean = self.flat_advantages.mean()
-        std = self.flat_advantages.std()
-        self.flat_advantages = (self.flat_advantages - mean) / (std + 1e-8)
 
     def save_old_flat_log_probs(self):
         self.flat_old_log_probs = self.flat_log_probs
@@ -291,11 +289,10 @@ if __name__ == "__main__":
             state = next_state
 
 
-        buffer.compute_advantages(params_critic, critic)
+        buffer.compute_advantages(params_critic, critic, normalize=True)
         buffer.compute_returns()
         buffer.compute_log_probs(params_actor, actor, key)
         buffer.flatten() 
-        buffer.normalize_advantages()
         buffer.save_old_flat_log_probs()
         num_samples = buffer.flat_states.shape[0]
 
